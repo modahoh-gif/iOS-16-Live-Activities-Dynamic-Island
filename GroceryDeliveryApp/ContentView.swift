@@ -1,28 +1,21 @@
-//
-//  ContentView.swift
-//  GroceryDeliveryApp
-//
-
 import SwiftUI
 import ActivityKit
-import AVFoundation
-import UIKit
 
 @available(iOS 16.1, *)
 struct ContentView: View {
 
-    @State private var activities: [Activity<GroceryDeliveryAppAttributes>] = []
+    @State private var activities:
+        [Activity<GroceryDeliveryAppAttributes>] = []
+
     @State private var currentPriceText = "$..."
-    @State private var lastUpdateText = "Waiting for price..."
+
     @State private var isRunning = false
 
-    @Environment(\.scenePhase) private var scenePhase
+    @State private var priceLoopTask:
+        Task<Void, Never>?
 
-    // نخزن الـ Task حتى نقدر نلغيه فعلياً
-    @State private var priceLoopTask: Task<Void, Never>?
-
-    // Background task من iOS
-    @State private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    @Environment(\.scenePhase)
+    private var scenePhase
 
     var body: some View {
 
@@ -30,57 +23,48 @@ struct ContentView: View {
 
             Form {
 
-                // MARK: - Bitcoin
-
                 Section {
 
                     Text("Bitcoin Live Dynamic Island")
                         .font(.headline)
 
                     Text(currentPriceText)
-                        .font(.system(size: 32, weight: .bold))
+                        .font(
+                            .system(
+                                size: 32,
+                                weight: .bold
+                            )
+                        )
                         .foregroundColor(.green)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-
-                    Text(lastUpdateText)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
 
                     Button {
+
+                        createActivity()
                         startBitcoinTracker()
+
                     } label: {
-                        Label(
-                            "Start Bitcoin Live Activity",
-                            systemImage: "bitcoinsign.circle.fill"
-                        )
-                        .font(.headline)
+
+                        Text("Start Bitcoin Live Activity")
+                            .font(.headline)
                     }
                     .tint(.orange)
 
                     Button {
+
                         stopBitcoinTracker()
                         endAllActivities()
+
                     } label: {
-                        Label(
-                            "End All Activities",
-                            systemImage: "stop.circle.fill"
-                        )
-                        .font(.headline)
+
+                        Text("End All Activities")
+                            .font(.headline)
                     }
                     .tint(.red)
                 }
 
-                // MARK: - Active Activities
-
                 Section {
 
-                    if activities.isEmpty {
-
-                        Text("No Active Bitcoin Tracker")
-                            .foregroundColor(.secondary)
-
-                    } else {
+                    if !activities.isEmpty {
 
                         Text("Active Trackers")
                             .font(.headline)
@@ -92,86 +76,28 @@ struct ContentView: View {
             .navigationTitle("Bitcoin Tracker")
         }
 
-        // MARK: - Initial setup
-
         .onAppear {
 
             refreshActivities()
-
-            setupAudioSession()
-
-            startBitcoinTracker()
         }
 
-        // MARK: - Scene changes
+        .onChange(of: scenePhase) { phase in
 
-        .onChange(of: scenePhase) { newPhase in
-
-            switch newPhase {
-
-            case .active:
-
-                print("App became active")
-
-                endBackgroundTaskIfNeeded()
+            if phase == .active {
 
                 refreshActivities()
 
-                startBitcoinTracker()
-
-            case .inactive:
-
-                print("App became inactive")
-
-            case .background:
-
-                print("App entered background")
-
                 /*
-                 iOS يعطي التطبيق فرصة قصيرة للعمل في الخلفية.
-                 هذا ليس استمراراً دائماً، لكنه أفضل من عدم طلب
-                 background execution إطلاقاً.
+                 إذا رجع التطبيق للواجهة،
+                 نستأنف التحديث.
                  */
 
-                beginBackgroundTask()
-
-            @unknown default:
-                break
+                startBitcoinTracker()
             }
         }
     }
 
-    // MARK: - Audio Session
-
-    /*
-     تفعيل Audio Session لا يجبر iOS على إبقاء التطبيق حياً.
-     نستخدمه فقط كتهيئة صحيحة في حال كان التطبيق يستخدم
-     audio بشكل مشروع.
-     */
-
-    private func setupAudioSession() {
-
-        do {
-
-            let session = AVAudioSession.sharedInstance()
-
-            try session.setCategory(
-                .playback,
-                mode: .default,
-                options: [.mixWithOthers]
-            )
-
-            try session.setActive(true)
-
-            print("Audio session configured")
-
-        } catch {
-
-            print("Audio session error: \(error)")
-        }
-    }
-
-    // MARK: - Start tracker
+    // MARK: - Bitcoin Loop
 
     private func startBitcoinTracker() {
 
@@ -183,24 +109,17 @@ struct ContentView: View {
 
         priceLoopTask?.cancel()
 
-        priceLoopTask = Task { @MainActor in
+        priceLoopTask = Task {
 
-            while !Task.isCancelled && isRunning {
+            while !Task.isCancelled {
 
                 await fetchBitcoinPrice()
-
-                /*
-                 محاولة كل ثانيتين.
-
-                 ملاحظة:
-                 عندما يقوم iOS بتعليق التطبيق بالخلفية،
-                 هذه الـ Task قد تتوقف.
-                 */
 
                 do {
 
                     try await Task.sleep(
-                        nanoseconds: 2_000_000_000
+                        nanoseconds:
+                            2_000_000_000
                     )
 
                 } catch {
@@ -211,19 +130,18 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Stop tracker
+    // MARK: - Stop
 
     private func stopBitcoinTracker() {
 
         isRunning = false
 
         priceLoopTask?.cancel()
-        priceLoopTask = nil
 
-        endBackgroundTaskIfNeeded()
+        priceLoopTask = nil
     }
 
-    // MARK: - Fetch Bitcoin price
+    // MARK: - Binance
 
     private func fetchBitcoinPrice() async {
 
@@ -231,144 +149,160 @@ struct ContentView: View {
             string:
                 "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
         ) else {
-
             return
         }
 
-        var request = URLRequest(url: url)
+        var request =
+            URLRequest(url: url)
 
         request.httpMethod = "GET"
 
         request.timeoutInterval = 5
 
-        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.cachePolicy =
+            .reloadIgnoringLocalCacheData
 
         do {
 
-            let (data, response) =
+            let (
+                data,
+                response
+            ) =
                 try await URLSession.shared.data(
                     for: request
                 )
 
             guard
-                let httpResponse = response as? HTTPURLResponse,
-                200...299 ~= httpResponse.statusCode
+                let http =
+                    response as? HTTPURLResponse,
+                200...299 ~= http.statusCode
             else {
-
-                print("Binance HTTP error")
-
                 return
             }
 
             guard
                 let json =
-                    try JSONSerialization.jsonObject(
+                    try JSONSerialization
+                    .jsonObject(
                         with: data
                     ) as? [String: Any],
 
-                let priceString =
-                    json["price"] as? String,
-
-                let price =
-                    Double(priceString)
+                let value =
+                    json["price"] as? String
             else {
-
-                print("Invalid Binance response")
-
                 return
             }
 
-            /*
-             نخلي رقم السعر بدقة رقم عشري واحد.
-             مثال:
-             $77511.4
-             */
+            let price =
+                Double(value) ?? 0
 
-            let formattedPrice =
+            let formatted =
                 String(
                     format: "$%.1f",
                     price
                 )
 
-            let formatter = DateFormatter()
+            await MainActor.run {
 
-            formatter.locale = Locale(identifier: "en_US")
+                currentPriceText =
+                    formatted
+            }
 
-            formatter.dateFormat = "HH:mm:ss"
-
-            let time =
-                formatter.string(from: Date())
-
-            currentPriceText = formattedPrice
-
-            lastUpdateText =
-                "Updated \(time)"
-
-            /*
-             تحديث جميع Live Activities الموجودة.
-             */
-
-            updateAllActiveLiveActivities(
-                with: formattedPrice
+            updateLiveActivities(
+                price: formatted
             )
-
-            refreshActivities()
-
-            print("BTC:", formattedPrice)
 
         } catch {
 
-            /*
-             لا نوقف الـ Loop بسبب فشل طلب واحد.
-             الدورة القادمة ستحاول مرة أخرى.
-             */
-
             print(
-                "Bitcoin request failed:",
+                "BTC error:",
                 error.localizedDescription
             )
         }
     }
 
-    // MARK: - Update Live Activities
+    // MARK: - Live Activity Update
 
-    private func updateAllActiveLiveActivities(
-        with price: String
+    private func updateLiveActivities(
+        price: String
     ) {
 
         Task {
 
-            let activeActivities =
-                Activity<GroceryDeliveryAppAttributes>.activities
+            let current =
+                Activity<
+                    GroceryDeliveryAppAttributes
+                >.activities
 
-            for activity in activeActivities {
+            for activity in current {
 
-                let updatedStatus =
-                    GroceryDeliveryAppAttributes.LiveDeliveryData(
+                let state =
+                    GroceryDeliveryAppAttributes
+                    .LiveDeliveryData(
                         courierName: price,
-                        deliveryTime: .now + 3600
+                        deliveryTime:
+                            .now + 3600
                     )
 
-                await activity.update(
-                    using: updatedStatus
-                )
+                /*
+                 update(using:) موجود في مشروعك القديم،
+                 لكنه deprecated في SDK الجديد.
+                 نستخدم update(_:) عندما يكون متاحاً.
+                 */
+
+                if #available(
+                    iOS 16.2,
+                    *
+                ) {
+
+                    await activity.update(
+                        ActivityContent(
+                            state: state,
+                            staleDate:
+                                .now + 30
+                        )
+                    )
+
+                } else {
+
+                    await activity.update(
+                        using: state
+                    )
+                }
             }
         }
     }
 
-    // MARK: - Create Live Activity
+    // MARK: - Create Activity
 
     private func createActivity() {
+
+        /*
+         لا تنشئ Activity ثانية إذا كانت
+         موجودة أصلاً.
+         */
+
+        if !Activity<
+            GroceryDeliveryAppAttributes
+        >.activities.isEmpty {
+
+            refreshActivities()
+
+            return
+        }
 
         let attributes =
             GroceryDeliveryAppAttributes(
                 numberOfGroceyItems: 1
             )
 
-        let contentState =
-            GroceryDeliveryAppAttributes.LiveDeliveryData(
-                courierName: currentPriceText,
-                deliveryTime: .now + 3600
+        let state =
+            GroceryDeliveryAppAttributes
+            .LiveDeliveryData(
+                courierName:
+                    currentPriceText,
+                deliveryTime:
+                    .now + 3600
             )
 
         do {
@@ -378,38 +312,42 @@ struct ContentView: View {
                     GroceryDeliveryAppAttributes
                 >.request(
                     attributes: attributes,
-                    contentState: contentState,
+                    content:
+                        ActivityContent(
+                            state: state,
+                            staleDate:
+                                .now + 30
+                        ),
                     pushType: .token
                 )
 
             print(
-                "Live Activity started:",
+                "Activity:",
                 activity.id
             )
 
             /*
-             مهم جداً:
-             نقرأ Push Token إذا احتجناه لاحقاً لـ APNs.
+             هذا مهم جداً للمستقبل:
+             Push Token يمكن أن يتغير.
              */
 
             Task {
 
-                for await tokenData
+                for await token
                     in activity.pushTokenUpdates {
 
-                    let token =
-                        tokenData
-                            .map {
-                                String(
-                                    format: "%02x",
-                                    $0
-                                )
-                            }
-                            .joined()
+                    let tokenString =
+                        token.map {
+                            String(
+                                format: "%02x",
+                                $0
+                            )
+                        }
+                        .joined()
 
                     print(
-                        "Live Activity Push Token:",
-                        token
+                        "LIVE ACTIVITY TOKEN:",
+                        tokenString
                     )
                 }
             }
@@ -419,88 +357,26 @@ struct ContentView: View {
         } catch {
 
             print(
-                "Failed to create Live Activity:",
+                "Activity error:",
                 error.localizedDescription
             )
         }
     }
 
-    // MARK: - Start button
-
-    private func startBitcoinTrackerAndActivity() {
-
-        createActivity()
-
-        startBitcoinTracker()
-
-        refreshActivities()
-    }
-
-    private func startBitcoinTracker() {
-
-        /*
-         إذا الـ Activity غير موجودة، ننشئ واحدة.
-         */
-
-        if Activity<GroceryDeliveryAppAttributes>
-            .activities
-            .isEmpty {
-
-            createActivity()
-        }
-
-        guard !isRunning else {
-            return
-        }
-
-        isRunning = true
-
-        priceLoopTask?.cancel()
-
-        priceLoopTask = Task { @MainActor in
-
-            while !Task.isCancelled && isRunning {
-
-                await fetchBitcoinPrice()
-
-                do {
-
-                    try await Task.sleep(
-                        nanoseconds: 2_000_000_000
-                    )
-
-                } catch {
-
-                    break
-                }
-            }
-        }
-    }
-
-    // MARK: - Public start
-
-    private func startTrackerFromButton() {
-
-        createActivity()
-
-        startBitcoinTracker()
-
-        refreshActivities()
-    }
-
-    // MARK: - End activities
+    // MARK: - End
 
     private func endAllActivities() {
 
         Task {
 
-            let activeActivities =
-                Activity<GroceryDeliveryAppAttributes>.activities
-
-            for activity in activeActivities {
+            for activity
+                in Activity<
+                    GroceryDeliveryAppAttributes
+                >.activities {
 
                 await activity.end(
-                    dismissalPolicy: .immediate
+                    dismissalPolicy:
+                        .immediate
                 )
             }
 
@@ -511,133 +387,50 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Refresh activities
+    // MARK: - Refresh
 
     private func refreshActivities() {
 
-        var current =
-            Activity<GroceryDeliveryAppAttributes>.activities
-
-        current.sort {
-            $0.id > $1.id
-        }
-
-        activities = current
+        activities =
+            Activity<
+                GroceryDeliveryAppAttributes
+            >.activities
     }
 
-    // MARK: - Background task
-
-    private func beginBackgroundTask() {
-
-        guard backgroundTaskID == .invalid else {
-            return
-        }
-
-        backgroundTaskID =
-            UIApplication.shared.beginBackgroundTask(
-                withName: "BitcoinPriceUpdate"
-            ) {
-
-                /*
-                 iOS أخبرنا أن وقت الـ background انتهى.
-                 */
-
-                Task { @MainActor in
-
-                    self.endBackgroundTaskIfNeeded()
-                }
-            }
-
-        print(
-            "Background task started:",
-            backgroundTaskID.rawValue
-        )
-    }
-
-    private func endBackgroundTaskIfNeeded() {
-
-        guard backgroundTaskID != .invalid else {
-            return
-        }
-
-        UIApplication.shared.endBackgroundTask(
-            backgroundTaskID
-        )
-
-        backgroundTaskID = .invalid
-
-        print("Background task ended")
-    }
-}
-
-// MARK: - Activity List
-
-@available(iOS 16.1, *)
-extension ContentView {
+    // MARK: - List
 
     @ViewBuilder
     private func activitiesView() -> some View {
 
-        ScrollView {
+        ForEach(
+            activities,
+            id: \.id
+        ) { activity in
 
-            VStack(spacing: 12) {
+            HStack {
 
-                ForEach(
-                    activities,
-                    id: \.id
-                ) { activity in
+                Text(
+                    activity
+                        .contentState
+                        .courierName
+                )
+                .font(.headline)
 
-                    let priceValue =
-                        activity.contentState.courierName
+                Spacer()
 
-                    HStack {
+                Button("End") {
 
-                        VStack(
-                            alignment: .leading,
-                            spacing: 4
-                        ) {
+                    Task {
 
-                            Text("BTC")
+                        await activity.end(
+                            dismissalPolicy:
+                                .immediate
+                        )
 
-                                .font(.headline)
-
-                            Text(priceValue)
-
-                                .font(
-                                    .system(
-                                        size: 20,
-                                        weight: .bold
-                                    )
-                                )
-                                .foregroundColor(.green)
-                        }
-
-                        Spacer()
-
-                        Button {
-
-                            Task {
-
-                                await activity.end(
-                                    dismissalPolicy: .immediate
-                                )
-
-                                refreshActivities()
-                            }
-
-                        } label: {
-
-                            Image(
-                                systemName:
-                                    "xmark.circle.fill"
-                            )
-                            .font(.title2)
-                            .foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
+                        refreshActivities()
                     }
-                    .padding(.vertical, 4)
                 }
+                .foregroundColor(.red)
             }
         }
     }
