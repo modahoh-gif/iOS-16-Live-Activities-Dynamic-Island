@@ -1,17 +1,84 @@
-name: Swift
+name: Build Dynamic Island Bitcoin IPA
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
 
 jobs:
   build:
-
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      run: xcodebuild -project GroceryDeliveryApp.xcodeproj -scheme GroceryDeliveryApp -sdk iphonesimulator CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO ONLY_ACTIVE_ARCH=NO
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Bitcoin Manager Integration
+        run: |
+          cat << 'EOF' > BitcoinManager.swift
+          import Foundation
+          import ActivityKit
+
+          public class BitcoinManager: ObservableObject {
+              public static let shared = BitcoinManager()
+              private var webSocket: URLSessionWebSocketTask?
+              
+              public func startWebSocket(updateHandler: @escaping (String) -> Void) {
+                  let url = URL(string: "wss://stream.binance.com:9443/ws/btcusdt@ticker")!
+                  webSocket = URLSession.shared.webSocketTask(with: url)
+                  webSocket?.resume()
+                  receiveMessage(updateHandler: updateHandler)
+              }
+              
+              private func receiveMessage(updateHandler: @escaping (String) -> Void) {
+                  webSocket?.receive { [weak self] result in
+                      switch result {
+                      case .success(let message):
+                          if case .string(let text) = message,
+                             let data = text.data(using: .utf8),
+                             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                             let priceStr = json["c"] as? String {
+                              let doublePrice = Double(priceStr) ?? 0
+                              let formattedPrice = String(format: "$%.1f", doublePrice)
+                              DispatchQueue.main.async {
+                                  updateHandler(formattedPrice)
+                              }
+                          }
+                          self?.receiveMessage(updateHandler: updateHandler)
+                      case .failure:
+                          DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                              self?.receiveMessage(updateHandler: updateHandler)
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Build Xcode Project for iOS
+        run: |
+          XCODE_PROJ=$(find . -name "*.xcodeproj" | head -n 1)
+          SCHEME_NAME=$(xcodebuild -list -project "$XCODE_PROJ" | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
+          
+          echo "Building scheme: $SCHEME_NAME"
+          
+          xcodebuild -project "$XCODE_PROJ" \
+                     -scheme "$SCHEME_NAME" \
+                     -sdk iphoneos \
+                     -configuration Release \
+                     CODE_SIGN_IDENTITY="" \
+                     CODE_SIGNING_REQUIRED=NO \
+                     CODE_SIGNING_ALLOWED=NO \
+                     build
+          
+          mkdir -p Payload
+          BUILT_APP=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" | head -n 1)
+          cp -r "$BUILT_APP" Payload/
+          
+          zip -r DynamicIslandBitcoin.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DynamicIslandBitcoin
+          path: DynamicIslandBitcoin.ipa
