@@ -17,11 +17,15 @@ struct ContentView: View {
     @Environment(\.scenePhase)
     private var scenePhase
 
+    // MARK: - Body
+
     var body: some View {
 
         NavigationView {
 
             Form {
+
+                // MARK: Bitcoin Section
 
                 Section {
 
@@ -38,29 +42,25 @@ struct ContentView: View {
                         .foregroundColor(.green)
 
                     Button {
-
                         createActivity()
                         startBitcoinTracker()
-
                     } label: {
-
                         Text("Start Bitcoin Live Activity")
                             .font(.headline)
                     }
                     .tint(.orange)
 
                     Button {
-
                         stopBitcoinTracker()
                         endAllActivities()
-
                     } label: {
-
                         Text("End All Activities")
                             .font(.headline)
                     }
                     .tint(.red)
                 }
+
+                // MARK: Active Activities
 
                 Section {
 
@@ -76,10 +76,13 @@ struct ContentView: View {
             .navigationTitle("Bitcoin Tracker")
         }
 
-        .onAppear {
+        // MARK: App Appeared
 
+        .onAppear {
             refreshActivities()
         }
+
+        // MARK: Scene Phase
 
         .onChange(of: scenePhase) { phase in
 
@@ -87,17 +90,14 @@ struct ContentView: View {
 
                 refreshActivities()
 
-                /*
-                 إذا رجع التطبيق للواجهة،
-                 نستأنف التحديث.
-                 */
-
-                startBitcoinTracker()
+                if !isRunning {
+                    startBitcoinTracker()
+                }
             }
         }
     }
 
-    // MARK: - Bitcoin Loop
+    // MARK: - Start Bitcoin Tracker
 
     private func startBitcoinTracker() {
 
@@ -118,8 +118,7 @@ struct ContentView: View {
                 do {
 
                     try await Task.sleep(
-                        nanoseconds:
-                            2_000_000_000
+                        nanoseconds: 2_000_000_000
                     )
 
                 } catch {
@@ -130,7 +129,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Stop
+    // MARK: - Stop Bitcoin Tracker
 
     private func stopBitcoinTracker() {
 
@@ -141,7 +140,7 @@ struct ContentView: View {
         priceLoopTask = nil
     }
 
-    // MARK: - Binance
+    // MARK: - Fetch Bitcoin Price
 
     private func fetchBitcoinPrice() async {
 
@@ -152,8 +151,7 @@ struct ContentView: View {
             return
         }
 
-        var request =
-            URLRequest(url: url)
+        var request = URLRequest(url: url)
 
         request.httpMethod = "GET"
 
@@ -164,37 +162,36 @@ struct ContentView: View {
 
         do {
 
-            let (
-                data,
-                response
-            ) =
+            let (data, response) =
                 try await URLSession.shared.data(
                     for: request
                 )
 
             guard
-                let http =
+                let httpResponse =
                     response as? HTTPURLResponse,
-                200...299 ~= http.statusCode
+                200...299 ~= httpResponse.statusCode
             else {
+                print("Binance HTTP error")
                 return
             }
 
             guard
                 let json =
-                    try JSONSerialization
-                    .jsonObject(
+                    try JSONSerialization.jsonObject(
                         with: data
                     ) as? [String: Any],
 
                 let value =
-                    json["price"] as? String
+                    json["price"] as? String,
+
+                let price =
+                    Double(value)
             else {
+
+                print("Invalid Binance response")
                 return
             }
-
-            let price =
-                Double(value) ?? 0
 
             let formatted =
                 String(
@@ -214,14 +211,17 @@ struct ContentView: View {
 
         } catch {
 
-            print(
-                "BTC error:",
-                error.localizedDescription
-            )
+            if !Task.isCancelled {
+
+                print(
+                    "BTC error:",
+                    error.localizedDescription
+                )
+            }
         }
     }
 
-    // MARK: - Live Activity Update
+    // MARK: - Update Live Activities
 
     private func updateLiveActivities(
         price: String
@@ -229,12 +229,12 @@ struct ContentView: View {
 
         Task {
 
-            let current =
+            let currentActivities =
                 Activity<
                     GroceryDeliveryAppAttributes
                 >.activities
 
-            for activity in current {
+            for activity in currentActivities {
 
                 let state =
                     GroceryDeliveryAppAttributes
@@ -244,23 +244,17 @@ struct ContentView: View {
                             .now + 3600
                     )
 
-                /*
-                 update(using:) موجود في مشروعك القديم،
-                 لكنه deprecated في SDK الجديد.
-                 نستخدم update(_:) عندما يكون متاحاً.
-                 */
+                if #available(iOS 16.2, *) {
 
-                if #available(
-                    iOS 16.2,
-                    *
-                ) {
-
-                    await activity.update(
+                    let content =
                         ActivityContent(
                             state: state,
                             staleDate:
                                 .now + 30
                         )
+
+                    await activity.update(
+                        content
                     )
 
                 } else {
@@ -270,21 +264,27 @@ struct ContentView: View {
                     )
                 }
             }
+
+            await MainActor.run {
+
+                refreshActivities()
+            }
         }
     }
 
-    // MARK: - Create Activity
+    // MARK: - Create Live Activity
 
     private func createActivity() {
 
-        /*
-         لا تنشئ Activity ثانية إذا كانت
-         موجودة أصلاً.
-         */
+        let existingActivities =
+            Activity<
+                GroceryDeliveryAppAttributes
+            >.activities
 
-        if !Activity<
-            GroceryDeliveryAppAttributes
-        >.activities.isEmpty {
+        // إذا يوجد Live Activity بالفعل
+        // لا ننشئ واحدة جديدة.
+
+        if !existingActivities.isEmpty {
 
             refreshActivities()
 
@@ -318,39 +318,13 @@ struct ContentView: View {
                             staleDate:
                                 .now + 30
                         ),
-                    pushType: .token
+                    pushType: nil
                 )
 
             print(
-                "Activity:",
+                "Activity created:",
                 activity.id
             )
-
-            /*
-             هذا مهم جداً للمستقبل:
-             Push Token يمكن أن يتغير.
-             */
-
-            Task {
-
-                for await token
-                    in activity.pushTokenUpdates {
-
-                    let tokenString =
-                        token.map {
-                            String(
-                                format: "%02x",
-                                $0
-                            )
-                        }
-                        .joined()
-
-                    print(
-                        "LIVE ACTIVITY TOKEN:",
-                        tokenString
-                    )
-                }
-            }
 
             refreshActivities()
 
@@ -363,16 +337,18 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - End
+    // MARK: - End All Activities
 
     private func endAllActivities() {
 
         Task {
 
-            for activity
-                in Activity<
+            let currentActivities =
+                Activity<
                     GroceryDeliveryAppAttributes
-                >.activities {
+                >.activities
+
+            for activity in currentActivities {
 
                 await activity.end(
                     dismissalPolicy:
@@ -387,7 +363,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Refresh
+    // MARK: - Refresh Activities
 
     private func refreshActivities() {
 
@@ -397,7 +373,7 @@ struct ContentView: View {
             >.activities
     }
 
-    // MARK: - List
+    // MARK: - Activities List
 
     @ViewBuilder
     private func activitiesView() -> some View {
@@ -427,7 +403,10 @@ struct ContentView: View {
                                 .immediate
                         )
 
-                        refreshActivities()
+                        await MainActor.run {
+
+                            refreshActivities()
+                        }
                     }
                 }
                 .foregroundColor(.red)
