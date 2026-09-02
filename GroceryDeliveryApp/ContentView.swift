@@ -56,7 +56,7 @@ struct ContentView: View {
             setupAudioSession()
             startLoop()
         }
-        .onChange(of: vARScenePhase) { newPhase in
+        .onChange(of: scenePhase) { newPhase in
             if newPhase == .active {
                 // إعادة تنشيط الجلب فوراً عندما يعود المستخدم للتطبيق
                 startLoop()
@@ -109,7 +109,7 @@ struct ContentView: View {
                 let formattedPrice = String(format: "$%.1f", doublePrice)
                 
                 await MainActor.run {
-                    self.currentPriceTest = formattedPrice
+                    self.currentPriceText = formattedPrice // تم تصحيح الخطأ هنا
                     updateAllActiveLiveActivities(with: formattedPrice)
                 }
             }
@@ -157,27 +157,25 @@ struct ContentView: View {
 
 @available(iOS 16.1, *)
 extension ContentView {
-    activitiesView() -> some View {
-        var body: some View {
-            ScrollView {
-                ForEach(activities, id: \.id) { activity in
-                    let priceValue = activity.contentState.courierName
-                    HStack(alignment: .center) {
-                        Text("BTC: \(priceValue)")
-                        Spacer()
-                        Text("End")
-                            .font(.headline)
-                            .foregroundColor(.red)
-                            .onTapGesture {
-                                Task {
-                                    await activity.end(dismissalPolicy: .immediate)
-                                    listAllDeliveries()
-                                }
+    @ViewBuilder
+    func activitiesView() -> some View { // تم إضافة كلمة func و @ViewBuilder لتصحيح الدالة
+        ScrollView {
+            ForEach(activities, id: \.id) { activity in
+                let priceValue = activity.contentState.courierName
+                HStack(alignment: .center) {
+                    Text("BTC: \(priceValue)")
+                    Spacer()
+                    Text("End")
+                        .font(.headline)
+                        .foregroundColor(.red)
+                        .onTapGesture {
+                            Task {
+                                await activity.end(dismissalPolicy: .immediate)
+                                listAllDeliveries()
                             }
-                    }
+                        }
                 }
             }
         }
-        return body
     }
 }
