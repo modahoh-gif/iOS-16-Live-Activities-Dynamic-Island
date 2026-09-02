@@ -7,12 +7,14 @@
 
 import SwiftUI
 import ActivityKit
+import AVFoundation
 
 @available(iOS 16.1, *)
 struct ContentView: View {
     @State var activities = Activity<GroceryDeliveryAppAttributes>.activities
     @State private var currentPriceText: String = "$..."
-    @State private var isFetching: Bool = false
+    @State private var isRunning: Bool = false
+    @Environment(\.scenePhase) private vARScenePhase
 
     var body: some View {
         NavigationView {
@@ -33,6 +35,7 @@ struct ContentView: View {
                     }.tint(.orange)
                     
                     Button(action: {
+                        stopLoop()
                         endAllActivity()
                         listAllDeliveries()
                     }) {
@@ -50,16 +53,33 @@ struct ContentView: View {
             .fontWeight(.ultraLight)
         }
         .onAppear {
+            setupAudioSession()
             startLoop()
+        }
+        .onChange(of: vARScenePhase) { newPhase in
+            if newPhase == .active {
+                // إعادة تنشيط الجلب فوراً عندما يعود المستخدم للتطبيق
+                startLoop()
+            }
+        }
+    }
+    
+    // تشغيل جلسة صوتية صامتة لإبقاء التطبيق نشطاً أطول فترة ممكنة بالخلفية
+    func setupAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Audio session error: \(error)")
         }
     }
     
     func startLoop() {
-        guard !isFetching else { return }
-        isFetching = true
+        guard !isRunning else { return }
+        isRunning = true
         
         Task {
-            while isFetching {
+            while isRunning {
                 await fetchPrice()
                 do {
                     try await Task.sleep(nanoseconds: 2_000_000_000) // كل ثانيتين
@@ -70,23 +90,31 @@ struct ContentView: View {
         }
     }
     
+    func stopLoop() {
+        isRunning = false
+    }
+    
     func fetchPrice() async {
         guard let url = URL(string: "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT") else { return }
         
+        // إعداد طلب مع وقت انتظار قصير جداً لمنع تعليق خيط المعالجة
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5.0
+        
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await URLSession.shared.data(for: request)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let priceStr = json["price"] as? String {
                 let doublePrice = Double(priceStr) ?? 0
                 let formattedPrice = String(format: "$%.1f", doublePrice)
                 
                 await MainActor.run {
-                    self.currentPriceText = formattedPrice
+                    self.currentPriceTest = formattedPrice
                     updateAllActiveLiveActivities(with: formattedPrice)
                 }
             }
         } catch {
-            // تجاهل أخطاء الاتصال المؤقتة
+            // في حال فشل الشبكة المؤقت, نحاول مجدداً في الدورة القادمة
         }
     }
     
@@ -129,7 +157,7 @@ struct ContentView: View {
 
 @available(iOS 16.1, *)
 extension ContentView {
-    func activitiesView() -> some View {
+    activitiesView() -> some View {
         var body: some View {
             ScrollView {
                 ForEach(activities, id: \.id) { activity in
