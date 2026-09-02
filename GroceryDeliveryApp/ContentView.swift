@@ -7,14 +7,12 @@
 
 import SwiftUI
 import ActivityKit
-import AVFoundation
 
 @available(iOS 16.1, *)
 struct ContentView: View {
     @State var activities = Activity<GroceryDeliveryAppAttributes>.activities
-    @State private var webSocket: URLSessionWebSocketTask?
-    @State private var currentPriceText: String = "Connecting..."
-    @State private var audioPlayer: AVAudioPlayer?
+    @State private var currentPriceText: String = "Loading..."
+    @State private var timer: Timer?
 
     var body: some View {
         NavigationView {
@@ -52,95 +50,40 @@ struct ContentView: View {
             .fontWeight(.ultraLight)
         }
         .onAppear {
-            setupSilentAudio()
-            startWebSocketStream()
+            startPricePolling()
+        }
+        .onDisappear {
+            timer?.invalidate()
         }
     }
     
-    // تشغيل صوت صامت بالخلفية لمنع نظام iOS من إيقاف التطبيق والاتصال
-    func setupSilentAudio() {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
+    // جلب السعر عبر REST API كل ثانيتين لضمان عدم التجميد نهائياً
+    func startPricePolling() {
+        timer?.invalidate()
+        fetchBitcoinPrice()
+        
+        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+            fetchBitcoinPrice()
+        }
+    }
+    
+    func fetchBitcoinPrice() {
+        guard let url = URL(string: "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT") else { return }
+        
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            guard let data = data, error == nil else { return }
             
-            // إنشاء ملف صوتي صامت قصير جداً وتكراره بلا حدود
-            let bundle = Bundle.main
-            if let soundURL = bundle.url(forResource: "silent", withExtension: "wav") ?? createEmptyWavFile() {
-                audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
-                audioPlayer?.numberOfLoops = -1
-                audioPlayer?.volume = 0.01
-                audioPlayer?.play()
-            }
-        } catch {
-            print("Audio session error: \(error)")
-        }
-    }
-    
-    func createEmptyWavFile() -> URL? {
-        let mutableData = NSMutableData()
-        let sampleRate: Int32 = 8000
-        let numChannels: Int16 = 1
-        let bitsPerSample: Int16 = 16
-        let byteRate = sampleRate * Int32(numChannels) * Int32(bitsPerSample / 8)
-        let blockAlign = numChannels * (bitsPerSample / 8)
-        let dataSize: Int32 = sampleRate * 2 // ثانيتين صوت صامت
-        let chunkSize = 36 + dataSize
-        
-        mutableData.append(Data("RIFF".utf8))
-        mutableData.append(withUnsafeBytes(of: chunkSize.littleEndian) { Data($0) })
-        mutableData.append(Data("WAVE".utf8))
-        mutableData.append(Data("fmt ".utf8))
-        mutableData.append(withUnsafeBytes(of: Int32(16).littleEndian) { Data($0) })
-        mutableData.append(withUnsafeBytes(of: Int16(1).littleEndian) { Data($0) })
-        mutableData.append(withUnsafeBytes(of: numChannels.littleEndian) { Data($0) })
-        mutableData.append(withUnsafeBytes(of: sampleRate.littleEndian) { Data($0) })
-        mutableData.append(withUnsafeBytes(of: byteRate.littleEndian) { Data($0) })
-        mutableData.append(withUnsafeBytes(of: blockAlign.littleEndian) { Data($0) })
-        mutableData.append(withUnsafeBytes(of: bitsPerSample.littleEndian) { Data($0) })
-        mutableData.append(Data("data".utf8))
-        mutableData.append(withUnsafeBytes(of: dataSize.littleEndian) { Data($0) })
-        
-        let zeros = Data(repeating: 0, count: Int(dataSize))
-        mutableData.append(zeros)
-        
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("silent.wav")
-        try? mutableData.write(to: tempDir)
-        return tempDir
-    }
-    
-    func startWebSocketStream() {
-        webSocket?.cancel()
-        let url = URL(string: "wss://stream.binance.com:9443/ws/btcusdt@ticker")!
-        webSocket = URLSession.shared.webSocketTask(with: url)
-        webSocket?.resume()
-        receiveWebSocketMessage()
-    }
-    
-    func receiveWebSocketMessage() {
-        webSocket?.receive { result in
-            switch result {
-            case .success(let message):
-                if case .string(let text) = message,
-                   let data = text.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let priceStr = json["c"] as? String {
-                    let doublePrice = Double(priceStr) ?? 0
-                    let formattedPrice = String(format: "$%.1f", doublePrice)
-                    
-                    DispatchQueue.main.async {
-                        self.currentPriceText = formattedPrice
-                        updateAllActiveLiveActivities(with: formattedPrice)
-                    }
-                }
-                // متابعة الاستماع للرسائل التالية
-                receiveWebSocketMessage()
-            case .failure:
-                // إعادة الاتصال الفوري تلقائياً في حال حدوث أي انقطاع
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    startWebSocketStream()
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let priceStr = json["price"] as? String {
+                let doublePrice = Double(priceStr) ?? 0
+                let formattedPrice = String(format: "$%.1f", doublePrice)
+                
+                DispatchQueue.main.async {
+                    self.currentPriceText = formattedPrice
+                    updateAllActiveLiveActivities(with: formattedPrice)
                 }
             }
-        }
+        }.resume()
     }
     
     func updateAllActiveLiveActivities(with price: String) {
