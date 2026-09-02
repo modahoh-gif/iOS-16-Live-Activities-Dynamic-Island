@@ -11,8 +11,8 @@ import ActivityKit
 @available(iOS 16.1, *)
 struct ContentView: View {
     @State var activities = Activity<GroceryDeliveryAppAttributes>.activities
-    @State private var currentPriceText: String = "Loading..."
-    @State private var isRunning: Bool = false
+    @State private var currentPriceText: String = "$..."
+    @State private var isFetching: Bool = false
 
     var body: some View {
         NavigationView {
@@ -27,14 +27,12 @@ struct ContentView: View {
                     
                     Button(action: {
                         createActivity()
-                        startBackgroundLoop()
                         listAllDeliveries()
                     }) {
                         Text("Start Bitcoin Live Activity").font(.headline)
                     }.tint(.orange)
                     
                     Button(action: {
-                        isRunning = false
                         endAllActivity()
                         listAllDeliveries()
                     }) {
@@ -52,22 +50,17 @@ struct ContentView: View {
             .fontWeight(.ultraLight)
         }
         .onAppear {
-            isRunning = true
-            startBackgroundLoop()
-        }
-        .onDisappear {
-            // لا نوقف الحلقة هنا لكي تستمر بتحديث النشاط الحي بالخلفية قدر الإمكان
+            startLoop()
         }
     }
     
-    // حلقة مهام غير同期 (Async Task Loop) مقاومة للتجميد السريع
-    func startBackgroundLoop() {
-        guard !isRunning else { return }
-        isRunning = true
+    func startLoop() {
+        guard !isFetching else { return }
+        isFetching = true
         
         Task {
-            while isRunning {
-                await fetchBitcoinPriceAsync()
+            while isFetching {
+                await fetchPrice()
                 do {
                     try await Task.sleep(nanoseconds: 2_000_000_000) // كل ثانيتين
                 } catch {
@@ -77,7 +70,7 @@ struct ContentView: View {
         }
     }
     
-    func fetchBitcoinPriceAsync() async {
+    func fetchPrice() async {
         guard let url = URL(string: "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT") else { return }
         
         do {
@@ -93,7 +86,7 @@ struct ContentView: View {
                 }
             }
         } catch {
-            // تجاهل أخطاء الشبكة المؤقتة وإعادة المحاولة في الدورة القادمة
+            // تجاهل أخطاء الاتصال المؤقتة
         }
     }
     
@@ -120,7 +113,6 @@ struct ContentView: View {
     }
     
     func endAllActivity() {
-        isRunning = false
         Task {
             for activity in Activity<GroceryDeliveryAppAttributes>.activities {
                 await activity.end(dismissalPolicy: .immediate)
