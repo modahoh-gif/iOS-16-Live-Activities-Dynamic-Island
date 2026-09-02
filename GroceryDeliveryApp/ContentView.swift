@@ -10,56 +10,95 @@ import ActivityKit
 
 @available(iOS 16.1, *)
 struct ContentView: View {
-    @State var  activities = Activity<GroceryDeliveryAppAttributes>.activities
+    @State var activities = Activity<GroceryDeliveryAppAttributes>.activities
+    @State private var webSocket: URLSessionWebSocketTask?
+    @State private var currentPriceText: String = "Connecting..."
+
     var body: some View {
         NavigationView {
             Form {
                 Section {
-                    Text("Create an activity to start a live activity")
+                    Text("Bitcoin Live Dynamic Island")
+                        .font(.headline)
+                    
+                    Text(currentPriceText)
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(.green)
+                    
                     Button(action: {
                         createActivity()
                         listAllDeliveries()
                     }) {
-                        Text("Create Activity").font(.headline)
-                    }.tint(.green)
-                    Button(action: {
-                        listAllDeliveries()
-                    }) {
-                        Text("List All Activities").font(.headline)
-                    }.tint(.green)
+                        Text("Start Bitcoin Live Activity").font(.headline)
+                    }.tint(.orange)
+                    
                     Button(action: {
                         endAllActivity()
                         listAllDeliveries()
                     }) {
-                        Text("End All Activites").font(.headline)
-                    }.tint(.green)
+                        Text("End All Activities").font(.headline)
+                    }.tint(.red)
                 }
                 Section {
                     if !activities.isEmpty {
-                        Text("Live Activities")
+                        Text("Active Trackers")
                     }
                     activitiesView()
                 }
             }
-            .navigationTitle("Welcome!")
+            .navigationTitle("Bitcoin Tracker")
             .fontWeight(.ultraLight)
         }
-        
+        .onAppear {
+            startWebSocketStream()
+        }
+    }
+    
+    func startWebSocketStream() {
+        let url = URL(string: "wss://stream.binance.com:9443/ws/btcusdt@ticker")!
+        webSocket = URLSession.shared.webSocketTask(with: url)
+        webSocket?.resume()
+        receiveWebSocketMessage()
+    }
+    
+    func receiveWebSocketMessage() {
+        webSocket?.receive { result in
+            switch result {
+            case .success(let message):
+                if case .string(let text) = message,
+                   let data = text.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let priceStr = json["c"] as? String {
+                    let doublePrice = Double(priceStr) ?? 0
+                    let formattedPrice = String(format: "$%.1f", doublePrice)
+                    
+                    DispatchQueue.main.async {
+                        self.currentPriceText = formattedPrice
+                        // تحديث تلقائي فوري لكل الأنشطة الحية المفتوحة بالجزيرة
+                        updateAllActiveLiveActivities(with: formattedPrice)
+                    }
+                }
+                receiveWebSocketMessage()
+            case .failure:
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    startWebSocketStream()
+                }
+            }
+        }
+    }
+    
+    func updateAllActiveLiveActivities(with price: String) {
+        Task {
+            for activity in Activity<GroceryDeliveryAppAttributes>.activities {
+                let updatedStatus = GroceryDeliveryAppAttributes.LiveDeliveryData(courierName: price, deliveryTime: .now + 3600)
+                await activity.update(using: updatedStatus)
+            }
+        }
     }
     
     func createActivity() {
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-            
-            if let error = error {
-                // Handle the error here.
-            }
-            
-            // Enable or disable features based on the authorization.
-        }
-        
-        let attributes = GroceryDeliveryAppAttributes(numberOfGroceyItems: 12)
-        let contentState = GroceryDeliveryAppAttributes.LiveDeliveryData(courierName: "Mike", deliveryTime: .now + 120)
+        let attributes = GroceryDeliveryAppAttributes(numberOfGroceyItems: 1)
+        let contentState = GroceryDeliveryAppAttributes.LiveDeliveryData(courierName: currentPriceText, deliveryTime: .now + 3600)
         do {
             let _ = try Activity<GroceryDeliveryAppAttributes>.request(
                 attributes: attributes,
@@ -69,26 +108,15 @@ struct ContentView: View {
             print(error.localizedDescription)
         }
     }
-    func update(activity: Activity<GroceryDeliveryAppAttributes>) {
-        Task {
-            let updatedStatus = GroceryDeliveryAppAttributes.LiveDeliveryData(courierName: "Adam",
-                                                                              deliveryTime: .now + 150)
-            await activity.update(using: updatedStatus)
-        }
-    }
     
-    func end(activity: Activity<GroceryDeliveryAppAttributes>) {
-        Task {
-            await activity.end(dismissalPolicy: .immediate)
-        }
-    }
     func endAllActivity() {
         Task {
-            for activity in Activity<GroceryDeliveryAppAttributes>.activities{
+            for activity in Activity<GroceryDeliveryAppAttributes>.activities {
                 await activity.end(dismissalPolicy: .immediate)
             }
         }
     }
+    
     func listAllDeliveries() {
         var activities = Activity<GroceryDeliveryAppAttributes>.activities
         activities.sort { $0.id > $1.id }
@@ -98,29 +126,22 @@ struct ContentView: View {
 
 @available(iOS 16.1, *)
 extension ContentView {
-    
     func activitiesView() -> some View {
         var body: some View {
             ScrollView {
                 ForEach(activities, id: \.id) { activity in
-                    let courierName = activity.contentState.courierName
-                    let deliveryTime = activity.contentState.deliveryTime
+                    let priceValue = activity.contentState.courierName
                     HStack(alignment: .center) {
-                        Text(courierName)
-                        Text(deliveryTime, style: .timer)
-                        Text("update")
+                        Text("BTC: \(priceValue)")
+                        Spacer()
+                        Text("End")
                             .font(.headline)
-                            .foregroundColor(.green)
+                            .foregroundColor(.red)
                             .onTapGesture {
-                                update(activity: activity)
-                                listAllDeliveries()
-                            }
-                        Text("end")
-                            .font(.headline)
-                            .foregroundColor(.green)
-                            .onTapGesture {
-                                end(activity: activity)
-                                listAllDeliveries()
+                                Task {
+                                    await activity.end(dismissalPolicy: .immediate)
+                                    listAllDeliveries()
+                                }
                             }
                     }
                 }
