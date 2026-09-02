@@ -27,143 +27,70 @@ struct GroceryDeliveryApp: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    dynamicIslandExpandedLeadingView(context: context)
+                    Text("BTC/USDT")
+                        .font(.headline)
+                        .foregroundColor(.orange)
                  }
                  
                  DynamicIslandExpandedRegion(.trailing) {
-                     dynamicIslandExpandedTrailingView(context: context)
+                     Text(context.state.courierName)
+                         .font(.headline)
+                         .foregroundColor(.green)
                  }
                  
                  DynamicIslandExpandedRegion(.center) {
-                     dynamicIslandExpandedCenterView(context: context)
+                     Text("Live Market Price")
+                         .font(.caption2)
+                         .foregroundColor(.gray)
                  }
                  
                 DynamicIslandExpandedRegion(.bottom) {
-                    dynamicIslandExpandedBottomView(context: context)
+                    Text("Zero Latency Tracker")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
                 
               } compactLeading: {
-                  compactLeadingView(context: context)
+                  HStack(spacing: 2) {
+                      Image(systemName: "bitcoinsign.circle.fill")
+                          .foregroundColor(.orange)
+                      Text("BTC")
+                          .font(.caption2)
+                          .bold()
+                  }
               } compactTrailing: {
-                  compactTrailingView(context: context)
+                  Text(context.state.courierName)
+                      .font(.caption2)
+                      .bold()
+                      .foregroundColor(.green)
               } minimal: {
-                  minimalView(context: context)
+                  Image(systemName: "bitcoinsign.circle.fill")
+                      .foregroundColor(.orange)
               }
-              .keylineTint(.cyan)
-        }
-    }
-    
-    
-    //MARK: Expanded Views
-    func dynamicIslandExpandedLeadingView(context: ActivityViewContext<GroceryDeliveryAppAttributes>) -> some View {
-        VStack {
-            Label {
-                Text("\(context.attributes.numberOfGroceyItems)")
-                    .font(.title2)
-            } icon: {
-                Image("grocery")
-                    .foregroundColor(.green)
-            }
-            Text("items")
-                .font(.title2)
-        }
-    }
-    
-    func dynamicIslandExpandedTrailingView(context: ActivityViewContext<GroceryDeliveryAppAttributes>) -> some View {
-        Label {
-            Text(context.state.deliveryTime, style: .timer)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 50)
-                .monospacedDigit()
-        } icon: {
-            Image(systemName: "timer")
-                .foregroundColor(.green)
-        }
-        .font(.title2)
-    }
-    
-    func dynamicIslandExpandedBottomView(context: ActivityViewContext<GroceryDeliveryAppAttributes>) -> some View {
-        let url = URL(string: "LiveActivities://?CourierNumber=87987")
-        return Link(destination: url!) {
-            Label("Call courier", systemImage: "phone")
-        }.foregroundColor(.green)
-    }
-    
-    func dynamicIslandExpandedCenterView(context: ActivityViewContext<GroceryDeliveryAppAttributes>) -> some View {
-        Text("\(context.state.courierName) is on the way!")
-            .lineLimit(1)
-            .font(.caption)
-    }
-    
-    
-    //MARK: Compact Views
-    func compactLeadingView(context: ActivityViewContext<GroceryDeliveryAppAttributes>) -> some View {
-        VStack {
-            Label {
-                Text("\(context.attributes.numberOfGroceyItems) items")
-            } icon: {
-                Image("grocery")
-                    .foregroundColor(.green)
-            }
-            .font(.caption2)
-        }
-    }
-    
-    func compactTrailingView(context: ActivityViewContext<GroceryDeliveryAppAttributes>) -> some View {
-        Text(context.state.deliveryTime, style: .timer)
-            .multilineTextAlignment(.center)
-            .frame(width: 40)
-            .font(.caption2)
-    }
-    
-    func minimalView(context: ActivityViewContext<GroceryDeliveryAppAttributes>) -> some View {
-        VStack(alignment: .center) {
-            Image(systemName: "timer")
-            Text(context.state.deliveryTime, style: .timer)
-                .multilineTextAlignment(.center)
-                .monospacedDigit()
-                .font(.caption2)
+              .keylineTint(.orange)
         }
     }
 }
-
-
-
-
 
 @available(iOSApplicationExtension 16.1, *)
 struct LockScreenView: View {
     var context: ActivityViewContext<GroceryDeliveryAppAttributes>
     var body: some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack {
-                VStack(alignment: .center) {
-                    Text(context.state.courierName + " is on the way!").font(.headline)
-                    Text("You ordered \(context.attributes.numberOfGroceyItems) grocery items.")
+                Image(systemName: "bitcoinsign.circle.fill")
+                    .foregroundColor(.orange)
+                    .font(.title)
+                VStack(alignment: .leading) {
+                    Text("Bitcoin Live Price")
                         .font(.subheadline)
-                    BottomLineView(time: context.state.deliveryTime)
+                        .foregroundColor(.gray)
+                    Text(context.state.courierName)
+                        .font(.title2)
+                        .bold()
+                        .foregroundColor(.green)
                 }
             }
-        }.padding(15)
-    }
-}
-
-struct BottomLineView: View {
-    var time: Date
-    var body: some View {
-        HStack {
-            Divider().frame(width: 50,
-                            height: 10)
-            .overlay(.gray).cornerRadius(5)
-            Image("delivery")
-            VStack {
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(style: StrokeStyle(lineWidth: 1,
-                                               dash: [4]))
-                    .frame(height: 10)
-                    .overlay(Text(time, style: .timer).font(.system(size: 8)).multilineTextAlignment(.center))
-            }
-            Image("home-address")
-        }
+        }.padding(10)
     }
 }
