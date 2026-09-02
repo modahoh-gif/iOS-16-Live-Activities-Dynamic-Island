@@ -12,7 +12,7 @@ import ActivityKit
 struct ContentView: View {
     @State var activities = Activity<GroceryDeliveryAppAttributes>.activities
     @State private var currentPriceText: String = "Loading..."
-    @State private var timer: Timer?
+    @State private var isRunning: Bool = false
 
     var body: some View {
         NavigationView {
@@ -27,12 +27,14 @@ struct ContentView: View {
                     
                     Button(action: {
                         createActivity()
+                        startBackgroundLoop()
                         listAllDeliveries()
                     }) {
                         Text("Start Bitcoin Live Activity").font(.headline)
                     }.tint(.orange)
                     
                     Button(action: {
+                        isRunning = false
                         endAllActivity()
                         listAllDeliveries()
                     }) {
@@ -50,40 +52,49 @@ struct ContentView: View {
             .fontWeight(.ultraLight)
         }
         .onAppear {
-            startPricePolling()
+            isRunning = true
+            startBackgroundLoop()
         }
         .onDisappear {
-            timer?.invalidate()
+            // لا نوقف الحلقة هنا لكي تستمر بتحديث النشاط الحي بالخلفية قدر الإمكان
         }
     }
     
-    // جلب السعر عبر REST API كل ثانيتين لضمان عدم التجميد نهائياً
-    func startPricePolling() {
-        timer?.invalidate()
-        fetchBitcoinPrice()
+    // حلقة مهام غير同期 (Async Task Loop) مقاومة للتجميد السريع
+    func startBackgroundLoop() {
+        guard !isRunning else { return }
+        isRunning = true
         
-        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-            fetchBitcoinPrice()
+        Task {
+            while isRunning {
+                await fetchBitcoinPriceAsync()
+                do {
+                    try await Task.sleep(nanoseconds: 2_000_000_000) // كل ثانيتين
+                } catch {
+                    break
+                }
+            }
         }
     }
     
-    func fetchBitcoinPrice() {
+    func fetchBitcoinPriceAsync() async {
         guard let url = URL(string: "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT") else { return }
         
-        URLSession.shared.dataTask(with: url) { data, response, error in
-            guard let data = data, error == nil else { return }
-            
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let priceStr = json["price"] as? String {
                 let doublePrice = Double(priceStr) ?? 0
                 let formattedPrice = String(format: "$%.1f", doublePrice)
                 
-                DispatchQueue.main.async {
+                await MainActor.run {
                     self.currentPriceText = formattedPrice
                     updateAllActiveLiveActivities(with: formattedPrice)
                 }
             }
-        }.resume()
+        } catch {
+            // تجاهل أخطاء الشبكة المؤقتة وإعادة المحاولة في الدورة القادمة
+        }
     }
     
     func updateAllActiveLiveActivities(with price: String) {
@@ -109,6 +120,7 @@ struct ContentView: View {
     }
     
     func endAllActivity() {
+        isRunning = false
         Task {
             for activity in Activity<GroceryDeliveryAppAttributes>.activities {
                 await activity.end(dismissalPolicy: .immediate)
