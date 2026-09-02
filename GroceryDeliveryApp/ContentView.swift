@@ -14,7 +14,7 @@ struct ContentView: View {
     @State var activities = Activity<GroceryDeliveryAppAttributes>.activities
     @State private var currentPriceText: String = "$..."
     @State private var isRunning: Bool = false
-    @Environment(\.scenePhase) private vARScenePhase
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationView {
