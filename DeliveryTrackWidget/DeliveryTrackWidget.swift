@@ -1,10 +1,3 @@
-//
-//  DeliveryTrackWidget.swift
-//  DeliveryTrackWidget
-//
-//  Created by Batikan Sosun on 13.08.2022.
-//
-
 import ActivityKit
 import WidgetKit
 import SwiftUI
@@ -20,54 +13,50 @@ struct Widgets: WidgetBundle {
 
 @available(iOSApplicationExtension 16.1, *)
 struct GroceryDeliveryApp: Widget {
-    
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: GroceryDeliveryAppAttributes.self) { context in
             LockScreenView(context: context)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Text("BTC/USDT")
-                        .font(.headline)
-                        .foregroundColor(.orange)
-                 }
-                 
-                 DynamicIslandExpandedRegion(.trailing) {
-                     Text(context.state.courierName)
-                         .font(.headline)
-                         .foregroundColor(.green)
-                 }
-                 
-                 DynamicIslandExpandedRegion(.center) {
-                     Text("Live Market Price")
-                         .font(.caption2)
-                         .foregroundColor(.gray)
-                 }
-                 
+                    HStack {
+                        Image(systemName: "bitcoinsign.circle.fill")
+                            .foregroundColor(.orange)
+                        Text(context.attributes.currencyPair)
+                            .font(.headline)
+                    }
+                }
+                
+                DynamicIslandExpandedRegion(.trailing) {
+                    Text(context.state.price)
+                        .font(.title2)
+                        .bold()
+                        .foregroundColor(.green)
+                }
+                
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text("Zero Latency Tracker")
+                    Text("Binance Realtime Stream")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
-                
-              } compactLeading: {
-                  HStack(spacing: 2) {
-                      Image(systemName: "bitcoinsign.circle.fill")
-                          .foregroundColor(.orange)
-                      Text("BTC")
-                          .font(.caption2)
-                          .bold()
-                  }
-              } compactTrailing: {
-                  Text(context.state.courierName)
-                      .font(.caption2)
-                      .bold()
-                      .foregroundColor(.green)
-              } minimal: {
-                  Image(systemName: "bitcoinsign.circle.fill")
-                      .foregroundColor(.orange)
-              }
-              .keylineTint(.orange)
+            } compactLeading: {
+                HStack(spacing: 2) {
+                    Image(systemName: "bitcoinsign.circle.fill")
+                        .foregroundColor(.orange)
+                    Text("BTC")
+                        .font(.caption2)
+                        .bold()
+                }
+            } compactTrailing: {
+                Text(context.state.price)
+                    .font(.caption2)
+                    .bold()
+                    .foregroundColor(.green)
+            } minimal: {
+                Image(systemName: "bitcoinsign.circle.fill")
+                    .foregroundColor(.orange)
+            }
+            .keylineTint(.orange)
         }
     }
 }
@@ -76,21 +65,24 @@ struct GroceryDeliveryApp: Widget {
 struct LockScreenView: View {
     var context: ActivityViewContext<GroceryDeliveryAppAttributes>
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Image(systemName: "bitcoinsign.circle.fill")
-                    .foregroundColor(.orange)
-                    .font(.title)
-                VStack(alignment: .leading) {
-                    Text("Bitcoin Live Price")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                    Text(context.state.courierName)
-                        .font(.title2)
-                        .bold()
-                        .foregroundColor(.green)
-                }
+        HStack {
+            Image(systemName: "bitcoinsign.circle.fill")
+                .foregroundColor(.orange)
+                .font(.largeTitle)
+            
+            VStack(alignment: .leading) {
+                Text(context.attributes.currencyPair)
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                Text("Bitcoin Price")
+                    .font(.headline)
             }
-        }.padding(10)
+            Spacer()
+            Text(context.state.price)
+                .font(.title)
+                .bold()
+                .foregroundColor(.green)
+        }
+        .padding()
     }
 }
