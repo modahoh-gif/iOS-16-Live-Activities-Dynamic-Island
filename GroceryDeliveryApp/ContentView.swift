@@ -1,128 +1,134 @@
 import SwiftUI
 import ActivityKit
+import AVFoundation
 
-// 1. إنشاء هيكل مخصص للبتكوين بدلاً من تطبيق التوصيل
-struct BitcoinTrackerAttributes: ActivityAttributes {
-    public struct ContentState: Codable, Hashable {
-        var currentPrice: String
-    }
-    var currencyName: String
-}
+class BitcoinTrackerManager: ObservableObject {
+    @Published var isTracking = false
+    private var currentActivity: Activity<GroceryDeliveryAppAttributes>?
+    private var webSocketTask: URLSessionWebSocketTask?
+    private var audioPlayer: AVAudioPlayer?
 
-@available(iOS 16.1, *)
-struct ContentView: View {
-    @State private var currentActivity: Activity<BitcoinTrackerAttributes>?
-    @State private var isTracking = false
-    @State private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            Text("متتبع البتكوين")
-                .font(.largeTitle)
-            
-            Button(action: {
-                isTracking ? stopTracking() : startTracking()
-            }) {
-                Text(isTracking ? "إيقاف التتبع" : "بدء التتبع")
-                    .padding()
-                    .background(isTracking ? Color.red : Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
-            }
-        }
-        .padding()
-    }
-    
-    // بدء الـ Activity
     func startTracking() {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         
-        let attributes = BitcoinTrackerAttributes(currencyName: "Bitcoin")
-        let state = BitcoinTrackerAttributes.ContentState(currentPrice: "جاري الجلب...")
+        setupSilentAudio()
+        
+        let attributes = GroceryDeliveryAppAttributes(currencyPair: "BTC/USDT")
+        let initialState = GroceryDeliveryAppAttributes.ContentState(price: "Connecting...")
         
         do {
-            // حل مشكلة توافق الإصدارات (iOS 16.2 vs iOS 16.1)
             if #available(iOS 16.2, *) {
-                let content = ActivityContent(state: state, staleDate: nil)
+                let content = ActivityContent(state: initialState, staleDate: nil)
                 currentActivity = try Activity.request(attributes: attributes, content: content, pushType: nil)
             } else {
-                currentActivity = try Activity.request(attributes: attributes, contentState: state, pushType: nil)
+                currentActivity = try Activity.request(attributes: attributes, contentState: initialState, pushType: nil)
             }
             
             isTracking = true
-            startFetchingPrice()
+            connectWebSocket()
         } catch {
-            print("Activity error:", error.localizedDescription)
+            print("Activity Error: \(error.localizedDescription)")
         }
     }
-    
-    // إيقاف الـ Activity
+
     func stopTracking() {
         Task {
-            let finalState = BitcoinTrackerAttributes.ContentState(currentPrice: "توقف التتبع")
-            
+            let finalState = GroceryDeliveryAppAttributes.ContentState(price: "Stopped")
             if #available(iOS 16.2, *) {
-                let finalContent = ActivityContent(state: finalState, staleDate: nil)
-                await currentActivity?.end(finalContent, dismissalPolicy: .immediate)
+                await currentActivity?.end(ActivityContent(state: finalState, staleDate: nil), dismissalPolicy: .immediate)
             } else {
                 await currentActivity?.end(using: finalState, dismissalPolicy: .immediate)
             }
             
-            isTracking = false
-            endBackgroundTask()
+            webSocketTask?.cancel(with: .goingAway, reason: nil)
+            audioPlayer?.stop()
+            DispatchQueue.main.async {
+                self.isTracking = false
+            }
         }
     }
-    
-    // حلقة جلب السعر مع تفعيل مهمة الخلفية المؤقتة
-    func startFetchingPrice() {
-        registerBackgroundTask()
-        
-        Task {
-            while isTracking {
-                let newPrice = await fetchBitcoinPrice()
-                updateActivity(with: newPrice)
-                
-                do {
-                    // الانتظار لمدة ثانيتين
-                    try await Task.sleep(nanoseconds: 2_000_000_000)
-                } catch {
-                    break
+
+    private func connectWebSocket() {
+        let url = URL(string: "wss://stream.binance.com:9443/ws/btcusdt@ticker")!
+        webSocketTask = URLSession.shared.webSocketTask(with: url)
+        webSocketTask?.resume()
+        receiveData()
+    }
+
+    private func receiveData() {
+        webSocketTask?.receive { [weak self] result in
+            guard let self = self, self.isTracking else { return }
+            
+            switch result {
+            case .success(let message):
+                if case .string(let text) = message, let data = text.data(using: .utf8) {
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let priceStr = json["c"] as? String,
+                       let priceDouble = Double(priceStr) {
+                        
+                        let formattedPrice = String(format: "$%.2f", priceDouble)
+                        self.updateActivity(with: formattedPrice)
+                    }
+                }
+                self.receiveData()
+            case .failure:
+                // إعادة الاتصال تلقائياً عند أي انقطاع
+                DispatchQueue.main.async.after(deadline: .now() + 3) {
+                    if self.isTracking { self.connectWebSocket() }
                 }
             }
         }
     }
-    
-    // تحديث البيانات في Dynamic Island
-    func updateActivity(with price: String) {
+
+    private func updateActivity(with price: String) {
         Task {
-            let updatedState = BitcoinTrackerAttributes.ContentState(currentPrice: price)
-            
+            let updatedState = GroceryDeliveryAppAttributes.ContentState(price: price)
             if #available(iOS 16.2, *) {
-                let content = ActivityContent(state: updatedState, staleDate: nil)
-                await currentActivity?.update(content)
+                await currentActivity?.update(ActivityContent(state: updatedState, staleDate: nil))
             } else {
                 await currentActivity?.update(using: updatedState)
             }
         }
     }
-    
-    // دالة وهمية لجلب السعر (استبدلها بالـ API الحقيقي)
-    func fetchBitcoinPrice() async -> String {
-        let randomPrice = Int.random(in: 60000...65000)
-        return "$\(randomPrice)"
-    }
-    
-    // طلب صلاحية العمل في الخلفية (يمنحك حوالي 30 ثانية فقط)
-    func registerBackgroundTask() {
-        backgroundTask = UIApplication.shared.beginBackgroundTask {
-            endBackgroundTask()
+
+    private func setupSilentAudio() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+            
+            // ملف صوتي صامت بترميز ناعم لضمان بقاء النظام نشطاً بالخلفية
+            if let silentURL = Bundle.main.url(forResource: "silent", withExtension: "mp3") {
+                audioPlayer = try AVAudioPlayer(contentsOf: silentURL)
+                audioPlayer?.numberOfLoops = -1
+                audioPlayer?.play()
+            }
+        } catch {
+            print("Audio session setup error: \(error)")
         }
     }
-    
-    func endBackgroundTask() {
-        if backgroundTask != .invalid {
-            UIApplication.shared.endBackgroundTask(backgroundTask)
-            backgroundTask = .invalid
+}
+
+@available(iOS 16.1, *)
+struct ContentView: View {
+    @StateObject private var tracker = BitcoinTrackerManager()
+
+    var body: some View {
+        VStack(spacing: 25) {
+            Text("BTC Live Tracker")
+                .font(.system(size: 28, weight: .bold))
+            
+            Button(action: {
+                tracker.isTracking ? tracker.stopTracking() : tracker.startTracking()
+            }) {
+                Text(tracker.isTracking ? "Stop Live Tracking" : "Start Live Tracking")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(tracker.isTracking ? Color.red : Color.orange)
+                    .cornerRadius(12)
+            }
         }
+        .padding(30)
     }
 }
